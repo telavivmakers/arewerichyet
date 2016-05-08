@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 # coding: utf-8
 
 import time
@@ -37,12 +36,20 @@ def get_credentials():
     password = cred['password']
     return username, password
 
+
 def setup_profile():
     profile = webdriver.FirefoxProfile()
     profile.default_preferences['browser.download.folderList'] = 2
     profile.default_preferences['browser.download.dir'] = downloads_dir
     profile.default_preferences['browser.helperApps.neverAsk.saveToDisk'] = 'application/vnd.ms-excel,text/csv,application/csv,application/x-csv,application/vnd.csv'
     return profile
+
+
+def wait_for_url_change(browser, prev_url):
+    print("waiting for url change from {}".format(prev_url))
+    while browser.current_url == prev_url:
+        time.sleep(1)
+
 
 def login(browser, username, password):
     login_iframe = browser.find_element_by_id('LoginIframeTag')
@@ -53,7 +60,10 @@ def login(browser, username, password):
     password_element = browser.find_element_by_class_name('fibi_password')
     password_element.clear()
     password_element.send_keys(password)
+    cur_url = browser.current_url
     password_element.send_keys('\n')
+    wait_for_url_change(browser, cur_url)
+
 
 # This fails: 1) need to wait for matafTools to be available, so wait for load
 # of a certain javascript file, probably just wait for load of the button
@@ -76,9 +86,11 @@ def main():
 
     # This part is slow due to many accesses via selenium? can fix the XPATH to
     # make it faster. Full text is TNUOT BAHESHBON - תנועות בחשבון
-    spans=browser.find_elements_by_xpath('//span')
+    spans = browser.find_elements_by_xpath('//span')
     operations_span = [s for s in spans if 'בחשבון' in s.text][0]
+    current_url = browser.current_url
     operations_span.click()
+    wait_for_url_change(browser, current_url)
 
     operations_csv = save_csv(browser)
     print("operations: {}".format(status_csv))
