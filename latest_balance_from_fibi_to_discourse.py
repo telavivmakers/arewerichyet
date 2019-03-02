@@ -1,0 +1,154 @@
+# coding: utf-8
+from os import getcwd
+from tempfile import TemporaryDirectory
+from time import sleep # TODO - remove in favor of better 'wrappers'
+from pathlib import Path
+from datetime import datetime
+
+import pandas as pd
+
+import pydiscourse
+
+from selenium.webdriver import Firefox, FirefoxProfile
+from selenium.webdriver.firefox.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.keys import Keys
+
+
+def status(txt):
+    print(f'{datetime.now()}: {txt}')
+
+
+def showpng(filename):
+    get_ipython().system(f'xdg-open {filename}')
+
+
+def element_screenshot(e, filename, show=True):
+    e.screenshot(filename)
+    if show:
+        showpng(filename)
+
+
+def browser_screenshot(browser, filename, show=True):
+    browser.get_screenshot_as_file(filename)
+    if show:
+        showpng(filename)
+
+
+def warn_if_multiple(items):
+    if len(items) > 1:
+        print(f'more than one item: {len(items)}')
+    return items[0]
+
+
+env_lines = open('.env').readlines()
+env = dict([list(map(lambda y: y.strip(), x.split('='))) for x in env_lines])
+
+
+def export_fibi_actions_from_last_month():
+    with TemporaryDirectory() as tempdir:
+        df = export_fibi_actions_from_last_month_helper(tempdir)
+    today = datetime.now().date()
+    today_str = today.strftime('%Y%m%d')
+    df.to_csv(f'fibi_last_month_export_{today_str}.csv', index=False)
+    return df
+
+
+def export_fibi_actions_from_last_month_helper(downloaddir, headless=True):
+    opts = Options()
+
+    opts.headless = headless
+    assert opts.headless == headless
+
+    profile = FirefoxProfile()
+    profile.set_preference("browser.download.panel.shown", False)
+    profile.set_preference("browser.helperApps.neverAsk.openFile","text/csv,application/vnd.ms-excel")
+    profile.set_preference("browser.helperApps.neverAsk.saveToDisk", "text/csv,application/vnd.ms-excel")
+    profile.set_preference("browser.download.folderList", 2)
+    profile.set_preference("browser.download.dir", downloaddir)
+
+    browser = Firefox(options=opts, firefox_profile=profile)
+    status('getting fibi login page')
+    browser.get('https://www.fibi.co.il/wps/portal/FibiMenu/Marketing/Platinum')
+    login_trigger = browser.find_element_by_class_name("login-trigger")
+    login_trigger.click()
+    #login_trigger.is_displayed()
+    #ps = browser.page_source
+    #browser.find_element_by_id('loginFrame')
+    #browser.switch_to.parent_frame()
+    browser.switch_to.frame('loginFrame')
+    username = WebDriverWait(browser, 20).\
+            until(EC.presence_of_element_located((By.ID, 'username')))
+    password = browser.find_element_by_id('password')
+
+    username.send_keys(env['USERNAME'])
+    password.send_keys(env['PASSWORD'])
+
+    element_screenshot(username, 'username_after_send_keys.png', show=False)
+    element_screenshot(password, 'password_after_send_keys.png', show=False)
+    #browser.find_elements_by_class_name('btn')[0].location
+    #browser.find_elements_by_class_name('login')
+    #browser.log_types
+    #password.send_keys(Keys.ENTER)
+    #password.send_keys(Keys.RETURN) # killed firefox
+    status('logging in')
+    username.submit() # or password.submit()
+    browser_screenshot(browser, 'after_password_submit.png', show=False)
+    browser.switch_to.default_content() # otherwise you get 'can't access dead object' - we need to switch back from the iframe
+    tnuot = WebDriverWait(browser, 20).\
+            until(EC.presence_of_element_located((By.PARTIAL_LINK_TEXT, 'תנועות בחשבון')))
+    browser_screenshot(browser, 'after_password_and_some_seconds.png', show=False)
+
+    tnuot.click()
+    prev_month = WebDriverWait(browser, 20).\
+            until(EC.presence_of_element_located((By.PARTIAL_LINK_TEXT, 'תנועות מתחילת חודש קודם')))
+    prev_month.click()
+    export_to_excel = WebDriverWait(browser, 20).\
+            until(EC.presence_of_element_located((By.CLASS_NAME, 'excell')))
+    status('downloading csv from previous month until now')
+    export_to_excel.click()
+    fibis = list(Path('.').glob('Fibi*.csv'))
+    latest = sorted([(x.stat().st_ctime, x) for x in fibis])[-1][1]
+    return fibi_to_dataframe(latest)
+
+
+def fibi_to_dataframe(filename):
+    latest_df = pd.read_csv(filename, encoding='iso8859-8')
+    date_col = warn_if_multiple([x for x in latest_df.columns if 'תאריך' in x and 'תאריך ערך' not in x])
+    latest_df = latest_df.rename(columns={date_col: 'date', 'סוג פעולה': 'op_type', 'תיאור': 'description', 'אסמכתא': 'id', 'זכות': 'income', 'חובה': 'expense', 'תאריך ערך': 'value_date', 'יתרה': 'balance'})
+    latest_df.date = pd.to_datetime(latest_df.date, format='%d/%m/%Y')
+    latest_df.value_date = pd.to_datetime(latest_df.value_date, format='%d/%m/%Y')
+    for col in ['balance', 'income', 'expense']:
+        latest_df[col] = pd.to_numeric(latest_df[col].str.replace(',', ''))
+    return latest_df
+
+
+def df_to_discourse(df):
+    category_name = '$$ Financial Status $$'
+    title = 'bank status - automatically generated'
+    content = f'''balance from {df.iloc[-1].date.date()}: {df.iloc[-1].balance}'''
+    username = env['DISCOURSE_API_USERNAME']
+    client = pydiscourse.client.DiscourseClient(
+        host='https://discourse.telavivmakers.org',
+        api_key=env['DISCOURSE_API_KEY'],
+        api_username=username)
+    status('getting discourse topics')
+    finance_category = warn_if_multiple([x for x in client.categories() if x['name'] == category_name])
+    category_id = finance_category['id']
+    user_topics = client.topics_by(username)
+    topic_title_to_id = {x['title'].lower(): x['id'] for x in user_topics}
+    topic_id = topic_title_to_id.get(title.lower())
+    status('creating discourse new post')
+    client.create_post(content=content, title=title, category_id=category_id, topic_id=topic_id)
+    status('done')
+
+
+def main():
+    df = export_fibi_actions_from_last_month()
+    df_to_discourse(df)
+
+
+if __name__ == '__main__':
+    main()
