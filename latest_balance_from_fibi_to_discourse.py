@@ -14,6 +14,7 @@ import pydiscourse
 
 from selenium import webdriver
 from selenium.webdriver import Firefox, FirefoxProfile
+from selenium.webdriver.firefox.firefox_binary import FirefoxBinary
 from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.by import By
@@ -55,8 +56,8 @@ def warn_if_multiple(items):
 def export_fibi_actions_from_last_month():
     # if we find a current file, just use it
     here = Path('.').absolute()
-    latest_csv = latest_file(here.glob('Fibi*.csv'))
-    if time() - latest_csv.stat().st_ctime < 3600:
+    latest_csv = latest_file(list(here.glob('Fibi*.csv')))
+    if latest_csv is not None and time() - latest_csv.stat().st_ctime < 3600:
         status('using cached file')
         df = fibi_to_dataframe(latest_csv)
     else:
@@ -90,7 +91,13 @@ def export_fibi_actions_from_last_month_helper(downloaddir, headless=True):
         service_args = ['-vv']
     else:
         service_args = []
-    browser = Firefox(options=opts, firefox_profile=profile, capabilities=capabilities, service_args=service_args)
+    browser = Firefox(
+        options=opts,
+        firefox_profile=profile,
+        capabilities=capabilities,
+        service_args=service_args,
+        firefox_binary=FirefoxBinary('/usr/bin/firefox'),
+    )
 
     status('getting fibi login page')
     browser.get('https://www.fibi.co.il/wps/portal/FibiMenu/Marketing/Platinum')
@@ -133,7 +140,7 @@ def export_fibi_actions_from_last_month_helper(downloaddir, headless=True):
     export_to_excel.click()
     sleep(2) # not always seeing csv file created. should be another way to query webdriver for saved file, or inotify on dir
     fibis = list(Path('.').glob('Fibi*.csv'))
-    latest = latest_filefibis()
+    latest = latest_file(fibis)
     if latest is None:
         status('no file returned; try later - seen error during middle of the night')
         raise SystemExit
@@ -141,6 +148,8 @@ def export_fibi_actions_from_last_month_helper(downloaddir, headless=True):
 
 
 def latest_file(paths):
+    if len(paths) == 0:
+        return None
     return sorted([(x.stat().st_ctime, x) for x in paths])[-1][1]
 
 
