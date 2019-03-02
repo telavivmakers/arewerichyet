@@ -1,20 +1,27 @@
+#!/bin/env python3
 # coding: utf-8
-from os import getcwd
-from tempfile import TemporaryDirectory
+from os import getcwd, environ
 from time import sleep # TODO - remove in favor of better 'wrappers'
 from pathlib import Path
 from datetime import datetime
+from time import time
+
+import dotenv
 
 import pandas as pd
 
 import pydiscourse
 
+from selenium import webdriver
 from selenium.webdriver import Firefox, FirefoxProfile
 from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
+
+
+dotenv.load_dotenv()
 
 
 def status(txt):
@@ -40,16 +47,20 @@ def browser_screenshot(browser, filename, show=True):
 def warn_if_multiple(items):
     if len(items) > 1:
         print(f'more than one item: {len(items)}')
+    if len(items) == 0:
+        return None
     return items[0]
 
 
-env_lines = open('.env').readlines()
-env = dict([list(map(lambda y: y.strip(), x.split('='))) for x in env_lines])
-
-
 def export_fibi_actions_from_last_month():
-    with TemporaryDirectory() as tempdir:
-        df = export_fibi_actions_from_last_month_helper(tempdir)
+    # if we find a current file, just use it
+    here = Path('.').absolute()
+    latest_csv = latest_file(here.glob('Fibi*.csv'))
+    if time() - latest_csv.stat().st_ctime < 3600:
+        status('using cached file')
+        df = fibi_to_dataframe(latest_csv)
+    else:
+        df = export_fibi_actions_from_last_month_helper(downloaddir=str(here), headless=True)
     today = datetime.now().date()
     today_str = today.strftime('%Y%m%d')
     df.to_csv(f'fibi_last_month_export_{today_str}.csv', index=False)
@@ -69,7 +80,18 @@ def export_fibi_actions_from_last_month_helper(downloaddir, headless=True):
     profile.set_preference("browser.download.folderList", 2)
     profile.set_preference("browser.download.dir", downloaddir)
 
-    browser = Firefox(options=opts, firefox_profile=profile)
+    # error seen when running under systemd, directly or via tmux
+    # Unable to find a matching set of capabilities
+    capabilities = webdriver.DesiredCapabilities.FIREFOX
+    #capabilities["marionett"] = False
+
+    status('creating selenium driver')
+    if False:
+        service_args = ['-vv']
+    else:
+        service_args = []
+    browser = Firefox(options=opts, firefox_profile=profile, capabilities=capabilities, service_args=service_args)
+
     status('getting fibi login page')
     browser.get('https://www.fibi.co.il/wps/portal/FibiMenu/Marketing/Platinum')
     login_trigger = browser.find_element_by_class_name("login-trigger")
@@ -83,8 +105,8 @@ def export_fibi_actions_from_last_month_helper(downloaddir, headless=True):
             until(EC.presence_of_element_located((By.ID, 'username')))
     password = browser.find_element_by_id('password')
 
-    username.send_keys(env['USERNAME'])
-    password.send_keys(env['PASSWORD'])
+    username.send_keys(environ['USERNAME'])
+    password.send_keys(environ['PASSWORD'])
 
     element_screenshot(username, 'username_after_send_keys.png', show=False)
     element_screenshot(password, 'password_after_send_keys.png', show=False)
@@ -109,9 +131,17 @@ def export_fibi_actions_from_last_month_helper(downloaddir, headless=True):
             until(EC.presence_of_element_located((By.CLASS_NAME, 'excell')))
     status('downloading csv from previous month until now')
     export_to_excel.click()
+    sleep(2) # not always seeing csv file created. should be another way to query webdriver for saved file, or inotify on dir
     fibis = list(Path('.').glob('Fibi*.csv'))
-    latest = sorted([(x.stat().st_ctime, x) for x in fibis])[-1][1]
+    latest = latest_filefibis()
+    if latest is None:
+        status('no file returned; try later - seen error during middle of the night')
+        raise SystemExit
     return fibi_to_dataframe(latest)
+
+
+def latest_file(paths):
+    return sorted([(x.stat().st_ctime, x) for x in paths])[-1][1]
 
 
 def fibi_to_dataframe(filename):
@@ -121,7 +151,7 @@ def fibi_to_dataframe(filename):
     latest_df.date = pd.to_datetime(latest_df.date, format='%d/%m/%Y')
     latest_df.value_date = pd.to_datetime(latest_df.value_date, format='%d/%m/%Y')
     for col in ['balance', 'income', 'expense']:
-        latest_df[col] = pd.to_numeric(latest_df[col].str.replace(',', ''))
+        latest_df[col] = pd.to_numeric(latest_df[col].str.replace(',', ''), errors='coerce')
     return latest_df
 
 
@@ -129,10 +159,10 @@ def df_to_discourse(df):
     category_name = '$$ Financial Status $$'
     title = 'bank status - automatically generated'
     content = f'''balance from {df.iloc[-1].date.date()}: {df.iloc[-1].balance}'''
-    username = env['DISCOURSE_API_USERNAME']
+    username = environ['DISCOURSE_API_USERNAME']
     client = pydiscourse.client.DiscourseClient(
         host='https://discourse.telavivmakers.org',
-        api_key=env['DISCOURSE_API_KEY'],
+        api_key=environ['DISCOURSE_API_KEY'],
         api_username=username)
     status('getting discourse topics')
     finance_category = warn_if_multiple([x for x in client.categories() if x['name'] == category_name])

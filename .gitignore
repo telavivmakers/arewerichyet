@@ -1,1 +1,8 @@
 credentials.json
+.env
+*.service
+*.timer
+*.csv
+*.png
+venv
+__pycache__
