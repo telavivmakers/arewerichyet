@@ -25,6 +25,9 @@ from selenium.webdriver.common.keys import Keys
 dotenv.load_dotenv()
 
 
+HEADLESS = True # False for debugging
+
+
 def status(txt):
     print(f'{datetime.now()}: {txt}')
 
@@ -61,7 +64,7 @@ def export_fibi_actions_from_last_month():
         status('using cached file')
         df = fibi_to_dataframe(latest_csv)
     else:
-        df = export_fibi_actions_from_last_month_helper(downloaddir=str(here), headless=True)
+        df = export_fibi_actions_from_last_month_helper(downloaddir=str(here), headless=HEADLESS)
     today = datetime.now().date()
     today_str = today.strftime('%Y%m%d')
     df.to_csv(f'fibi_last_month_export_{today_str}.csv', index=False)
@@ -132,7 +135,7 @@ def export_fibi_actions_from_last_month_helper(downloaddir, headless=True):
 
     tnuot.click()
     prev_month = WebDriverWait(browser, 20).\
-            until(EC.presence_of_element_located((By.PARTIAL_LINK_TEXT, 'תנועות מתחילת חודש קודם')))
+            until(EC.presence_of_element_located((By.PARTIAL_LINK_TEXT, 'תנועות מתחילת חודש נוכחי')))
     prev_month.click()
     export_to_excel = WebDriverWait(browser, 20).\
             until(EC.presence_of_element_located((By.CLASS_NAME, 'excell')))
@@ -164,23 +167,48 @@ def fibi_to_dataframe(filename):
     return latest_df
 
 
+dc_username = environ['DISCOURSE_API_USERNAME']
+dc_title = 'bank status - automatically generated'
+
+
+
+class BalanceDiscourse:
+    def __init__(self):
+        client = pydiscourse.client.DiscourseClient(
+            host='https://discourse.telavivmakers.org',
+            api_key=environ['DISCOURSE_API_KEY'],
+            api_username=dc_username)
+        self.client = client
+        category_name = '$$ Financial Status $$'
+        finance_category = warn_if_multiple([x for x in client.categories() if x['name'] == category_name])
+        self.category_id = category_id = finance_category['id']
+        user_topics = client.topics_by(dc_username)
+        topic_title_to_id = {x['title'].lower(): x['id'] for x in user_topics}
+        self.topic_id = topic_title_to_id.get(dc_title.lower())
+
+    def get_last_posted_balance(self):
+        last_post = self.client.posts(self.topic_id)['post_stream']['posts'][-1]
+        cooked = last_post['cooked']
+        start, end = cooked.rsplit(':', 1)
+        balance = float(end.split('<')[0])
+        return balance
+
+    def post(self, date, balance):
+        content = f'''balance from {date}: {balance}'''
+        self.client.create_post(content=content, title=dc_title, category_id=self.category_id, topic_id=self.topic_id)
+
+
 def df_to_discourse(df):
-    category_name = '$$ Financial Status $$'
-    title = 'bank status - automatically generated'
-    content = f'''balance from {df.iloc[-1].date.date()}: {df.iloc[-1].balance}'''
-    username = environ['DISCOURSE_API_USERNAME']
-    client = pydiscourse.client.DiscourseClient(
-        host='https://discourse.telavivmakers.org',
-        api_key=environ['DISCOURSE_API_KEY'],
-        api_username=username)
-    status('getting discourse topics')
-    finance_category = warn_if_multiple([x for x in client.categories() if x['name'] == category_name])
-    category_id = finance_category['id']
-    user_topics = client.topics_by(username)
-    topic_title_to_id = {x['title'].lower(): x['id'] for x in user_topics}
-    topic_id = topic_title_to_id.get(title.lower())
-    status('creating discourse new post')
-    client.create_post(content=content, title=title, category_id=category_id, topic_id=topic_id)
+    status('getting last post')
+    client = BalanceDiscourse()
+    balance = df.iloc[-1].balance
+    last_balance = client.get_last_posted_balance()
+    if last_balance == balance:
+        status('no change, not posting')
+    else:
+        status('creating discourse new post')
+        date = df.iloc[-1].date.date()
+        client.post(date=date, balance=balance)
     status('done')
 
 
@@ -191,3 +219,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+    #discourse_test()
