@@ -187,10 +187,14 @@ class BalanceDiscourse:
         self.topic_id = topic_title_to_id.get(dc_title.lower())
 
     def get_last_posted_balance(self):
-        last_post = self.client.posts(self.topic_id)['post_stream']['posts'][-1]
-        cooked = last_post['cooked']
-        start, end = cooked.rsplit(':', 1)
-        balance = float(end.split('<')[0])
+        # find last post that was posted automatically
+        for post in reversed(self.client.posts(self.topic_id)['post_stream']['posts']):
+            cooked = post['cooked']
+            if ':' not in cooked or 'balance from ' not in cooked:
+                continue
+            start, end = cooked.rsplit(':', 1)
+            balance = float(end.split('<')[0])
+            break
         return balance
 
     def post(self, date, balance):
