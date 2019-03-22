@@ -5,6 +5,7 @@ from time import sleep # TODO - remove in favor of better 'wrappers'
 from pathlib import Path
 from datetime import datetime
 from time import time
+import sys
 
 import dotenv
 
@@ -188,37 +189,46 @@ class BalanceDiscourse:
 
     def get_last_posted_balance(self):
         # find last post that was posted automatically
+        post_id = None
+        balance = None
         for post in reversed(self.client.posts(self.topic_id)['post_stream']['posts']):
             cooked = post['cooked']
+            post_id = post['id']
             if ':' not in cooked or 'balance from ' not in cooked:
                 continue
             start, end = cooked.rsplit(':', 1)
             balance = float(end.split('<')[0])
             break
-        return balance
+        return post_id, balance
 
-    def post(self, date, balance):
+    def post(self, date, balance, post_id):
         content = f'''balance from {date}: {balance}'''
-        self.client.create_post(content=content, title=dc_title, category_id=self.category_id, topic_id=self.topic_id)
+        if post_id is None:
+            self.client.create_post(content=content, title=dc_title, category_id=self.category_id, topic_id=self.topic_id)
+        else:
+            self.client.update_post(post_id=post_id, content=content, reason='automatic update from source of truth')
 
 
-def df_to_discourse(df):
+def df_to_discourse(df, really=False):
     status('getting last post')
     client = BalanceDiscourse()
     balance = df.iloc[-1].balance
-    last_balance = client.get_last_posted_balance()
+    last_balance_post_id, last_balance = client.get_last_posted_balance()
     if last_balance == balance:
         status('no change, not posting')
     else:
-        status('creating discourse new post')
-        date = df.iloc[-1].date.date()
-        client.post(date=date, balance=balance)
+        if really:
+            date = df.iloc[-1].date.date()
+            if last_balance_post_id is None:
+                status('creating discourse new post' if last_balance_post_id is None
+                       else 'updating discourse post {post_id}')
+            client.post(date=date, balance=balance, post_id=last_balance_post_id)
     status('done')
 
 
 def main():
     df = export_fibi_actions_from_last_month()
-    df_to_discourse(df)
+    df_to_discourse(df, really='really' in sys.argv)
 
 
 if __name__ == '__main__':
