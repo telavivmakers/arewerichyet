@@ -26,7 +26,7 @@ from selenium.webdriver.common.keys import Keys
 dotenv.load_dotenv()
 
 
-HEADLESS = False # False for debugging
+HEADLESS = True # False for debugging
 
 
 if Path('./geckodriver').exists():
