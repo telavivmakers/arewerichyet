@@ -1,10 +1,14 @@
 #!/bin/env python3
 # coding: utf-8
+from tabulate import tabulate
+from pdb import set_trace as b
 from os import getcwd, environ
 from time import sleep # TODO - remove in favor of better 'wrappers'
 from pathlib import Path
 from datetime import datetime
 from time import time
+from io import StringIO
+import subprocess
 import sys
 
 import dotenv
@@ -207,34 +211,48 @@ class BalanceDiscourse:
             break
         return post_id, balance
 
-    def post(self, date, balance, post_id):
-        content = f'''balance from {date}: {balance}'''
+    def post(self, date, balance, post_id, latest):
+        latest = tabulate(latest.values, latest.columns, 'github')
+        content = f'''balance from {date}: {balance}
+
+{latest}
+'''
         if post_id is None:
             self.client.create_post(content=content, title=dc_title, category_id=self.category_id, topic_id=self.topic_id)
         else:
             self.client.update_post(post_id=post_id, content=content, reason='automatic update from source of truth')
 
 
-def df_to_discourse(df, really=False):
+def df_to_discourse(df, latest, really=False, force=False):
     status('getting last post')
     client = BalanceDiscourse()
     balance = df.iloc[-1].balance
     last_balance_post_id, last_balance = client.get_last_posted_balance()
-    if last_balance == balance:
+    if last_balance == balance and not force:
         status('no change, not posting')
     else:
         if really:
-            date = df.iloc[-1].date.date()
+            date = datetime.now().date() # This is the last date from the bank, but we are using the date we got this from the bank; df.iloc[-1].date.date()
             if last_balance_post_id is None:
                 status('creating discourse new post' if last_balance_post_id is None
                        else 'updating discourse post {post_id}')
-            client.post(date=date, balance=balance, post_id=last_balance_post_id)
+            client.post(date=date, balance=balance, post_id=last_balance_post_id, latest=latest)
     status('done')
+
+
+def get_latest():
+    # implemented with an xsv script right now, just use that
+    s = StringIO(subprocess.check_output('./last_files_expenses.sh').decode())
+    df = pd.read_csv(s)
+    df['description'] = df.apply(lambda row: pd.isna(row.recurring) and row.one_time or row.recurring, axis=1)
+    df = df.drop(columns=['recurring', 'one_time'])
+    return df
 
 
 def main():
     df = export_fibi_actions_from_last_month()
-    df_to_discourse(df, really='really' in sys.argv)
+    latest = get_latest()
+    df_to_discourse(df, really='really' in sys.argv, force='force' in sys.argv, latest=latest)
 
 
 if __name__ == '__main__':
