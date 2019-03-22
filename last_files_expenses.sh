@@ -5,7 +5,7 @@ function error() {
 	exit -1
 }
 
-(which xsv 2> /dev/null) || error install rust and xsv
+(which xsv 2> /dev/null > /dev/null) || error install rust and xsv
 
 xsv cat rows $(find . -maxdepth 1 -ctime -14 -iname 'fibi_last_month*.csv') | xsv sort | uniq \
 | xsv select expense,value_date $f | grep -v '^,' > last_expenses.csv
