@@ -1,0 +1,4 @@
+install geckodriver
+ - download latest (at the time of writing https://github.com/mozilla/geckodriver/releases/tag/v0.24.0)
+ - unpack to current directory (it can also be in the PATH elsewhere)
+install firefox
