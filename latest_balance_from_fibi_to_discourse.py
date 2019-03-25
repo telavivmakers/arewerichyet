@@ -144,7 +144,19 @@ def export_fibi_actions_from_last_month_helper(downloaddir, headless=True):
             until(EC.presence_of_element_located((By.PARTIAL_LINK_TEXT, 'תנועות בחשבון')))
     browser_screenshot(browser, 'after_password_and_some_seconds.png', show=False)
 
-    tnuot.click()
+    def repeat_click_until_no_intercept(e):
+        for repeat in range(10):
+            try:
+                e.click()
+                print()
+                return
+            except selenium.common.exceptions.ElementClickInterceptedException:
+                print('.', end=None)
+                sleep(5)
+        print(f'timeout waiting for element to not be intercepted for clicking: {e}')
+        raise SystemExit
+
+    repeat_click_until_no_intercept(tnuot)
     prev_month = WebDriverWait(browser, 20).\
             until(EC.presence_of_element_located((By.PARTIAL_LINK_TEXT, 'תנועות מתחילת חודש נוכחי')))
     prev_month.click()
