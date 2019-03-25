@@ -213,14 +213,14 @@ class BalanceDiscourse:
         # find last post that was posted automatically
         post_id = None
         balance = None
-        for post in reversed(self.client.posts(self.topic_id)['post_stream']['posts']):
+        posts = self.client.posts(self.topic_id)['post_stream']['posts']
+        if len(posts) > 0:
+            post = posts[0]
             cooked = post['cooked']
             post_id = post['id']
-            if ':' not in cooked or 'balance from ' not in cooked:
-                continue
-            start, end = cooked.rsplit(':', 1)
-            balance = float(end.split('<')[0])
-            break
+            if ':' in cooked and 'balance from ' in cooked:
+                start, end = cooked.rsplit(':', 1)
+                balance = float(end.split('<')[0])
         return post_id, balance
 
     def post(self, date, balance, post_id, latest):
@@ -228,6 +228,16 @@ class BalanceDiscourse:
         content = f'''balance from {date}: {balance}
 
 {latest}
+
+------
+
+This topic is updated automatically.
+
+Please avoid replying here if possible.
+
+Repository producing this:
+
+https://github.com/telavivmakers/arewerichyet.git
 '''
         if post_id is None:
             self.client.create_post(content=content, title=dc_title, category_id=self.category_id, topic_id=self.topic_id)
