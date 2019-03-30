@@ -1,6 +1,6 @@
 #!/bin/env python3
 # coding: utf-8
-from tabulate import tabulate
+import re
 from pdb import set_trace as b
 from os import getcwd, environ
 from time import sleep # TODO - remove in favor of better 'wrappers'
@@ -13,6 +13,7 @@ import sys
 
 import dotenv
 
+from tabulate import tabulate
 import pandas as pd
 
 import pydiscourse
@@ -218,9 +219,9 @@ class BalanceDiscourse:
             post = posts[0]
             cooked = post['cooked']
             post_id = post['id']
-            if ':' in cooked and 'balance from ' in cooked:
-                start, end = cooked.rsplit(':', 1)
-                balance = float(end.split('<')[0])
+            match = re.search('balance from [0-9][0-9][0-9][0-9]-[0-9][0-9]*-[0-9][0-9]*: ([0-9]*.[0-9]*)', cooked)
+            if match:
+                balance = float(match.groups()[0])
         return post_id, balance
 
     def post(self, date, balance, post_id, latest):
@@ -255,10 +256,11 @@ def df_to_discourse(df, latest, really=False, force=False):
     else:
         if really:
             date = datetime.now().date() # This is the last date from the bank, but we are using the date we got this from the bank; df.iloc[-1].date.date()
-            if last_balance_post_id is None:
-                status('creating discourse new post' if last_balance_post_id is None
-                       else 'updating discourse post {post_id}')
+            status('creating discourse new post' if last_balance_post_id is None
+                   else 'updating discourse post {post_id}')
             client.post(date=date, balance=balance, post_id=last_balance_post_id, latest=latest)
+        else:
+            status('dryrun, not updating')
     status('done')
 
 
