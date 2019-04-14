@@ -10,11 +10,15 @@ from time import time
 from io import StringIO
 import subprocess
 import sys
+import base64
 
 import dotenv
 
 from tabulate import tabulate
 import pandas as pd
+import matplotlib.pyplot as plt
+from pandas.plotting import register_matplotlib_converters
+register_matplotlib_converters()
 
 import pydiscourse
 
@@ -31,7 +35,11 @@ from selenium.webdriver.common.keys import Keys
 dotenv.load_dotenv()
 
 
-HEADLESS = True # False for debugging
+assert 'PASSWORD' in environ
+assert 'USERNAME' in environ
+
+
+HEADLESS = False # False for debugging
 
 
 if Path('./geckodriver').exists():
@@ -72,8 +80,8 @@ def export_fibi_actions_from_last_month():
     # if we find a current file, just use it
     here = Path('.').absolute()
     latest_csv = latest_file(list(here.glob('Fibi*.csv')))
-    if latest_csv is not None and time() - latest_csv.stat().st_ctime < 3600:
-        status('using cached file')
+    if latest_csv is not None and time() - latest_csv.stat().st_mtime < 3600:
+        status(f'using cached file ({latest_csv})')
         df = fibi_to_dataframe(latest_csv)
     else:
         df = export_fibi_actions_from_last_month_helper(downloaddir=str(here), headless=HEADLESS)
@@ -127,6 +135,9 @@ def export_fibi_actions_from_last_month_helper(downloaddir, headless=True):
             until(EC.presence_of_element_located((By.ID, 'username')))
     password = browser.find_element_by_id('password')
 
+    submit_button = WebDriverWait(browser, 20).\
+            until(EC.presence_of_element_located((By.ID, 'continueBtn')))
+
     username.send_keys(environ['USERNAME'])
     password.send_keys(environ['PASSWORD'])
 
@@ -138,7 +149,9 @@ def export_fibi_actions_from_last_month_helper(downloaddir, headless=True):
     #password.send_keys(Keys.ENTER)
     #password.send_keys(Keys.RETURN) # killed firefox
     status('logging in')
-    username.submit() # or password.submit()
+    #username.submit() # or password.submit()
+    browser_screenshot(browser, 'before_password_submit.png', show=False)
+    submit_button.click()
     browser_screenshot(browser, 'after_password_submit.png', show=False)
     browser.switch_to.default_content() # otherwise you get 'can't access dead object' - we need to switch back from the iframe
     tnuot = WebDriverWait(browser, 20).\
@@ -226,9 +239,13 @@ class BalanceDiscourse:
 
     def post(self, date, balance, post_id, latest):
         latest = tabulate(latest.values, latest.columns, 'github')
+        b64 = get_balance_plot()
+        image = f'''<img src="data:image/png;base64,{b64}" alt="balance(date)" />'''
         content = f'''balance from {date}: {balance}
 
 {latest}
+
+{image}
 
 ------
 
@@ -257,11 +274,24 @@ def df_to_discourse(df, latest, really=False, force=False):
         if really:
             date = datetime.now().date() # This is the last date from the bank, but we are using the date we got this from the bank; df.iloc[-1].date.date()
             status('creating discourse new post' if last_balance_post_id is None
-                   else 'updating discourse post {post_id}')
+                   else 'updating discourse post {last_balance_post_id}'.format(last_balance_post_id=last_balance_post_id))
             client.post(date=date, balance=balance, post_id=last_balance_post_id, latest=latest)
         else:
             status('dryrun, not updating')
     status('done')
+
+
+def get_balance_plot():
+    df = pd.read_csv('all.csv')[['date', 'balance']].dropna()
+    df['date'] = pd.to_datetime(df['date'])
+    df['balance'] = pd.to_numeric(df['balance'])
+    plt.plot(df['date'], df['balance'], '.')
+    fig = plt.gcf()
+    fig.autofmt_xdate(rotation=45)
+    plt.savefig('all_balance.png')
+    with open('all_balance.png', 'rb') as fd:
+        b = fd.read()
+    return base64.b64encode(b).decode()
 
 
 def get_latest():
