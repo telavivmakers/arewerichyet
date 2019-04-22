@@ -31,6 +31,8 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
 
+from find_repeat_donations import statistics
+
 
 dotenv.load_dotenv()
 
@@ -50,6 +52,7 @@ if Path('./geckodriver').exists():
 
 def status(txt):
     print(f'{datetime.now()}: {txt}')
+    sys.stdout.flush()
 
 
 def showpng(filename):
@@ -84,6 +87,7 @@ def export_fibi_actions_from_last_month():
         status(f'using cached file ({latest_csv})')
         df = fibi_to_dataframe(latest_csv)
     else:
+        breakpoint()
         df = export_fibi_actions_from_last_month_helper(downloaddir=str(here), headless=HEADLESS)
     today = datetime.now().date()
     today_str = today.strftime('%Y%m%d')
@@ -151,9 +155,11 @@ def export_fibi_actions_from_last_month_helper(downloaddir, headless=True):
     status('logging in')
     #username.submit() # or password.submit()
     browser_screenshot(browser, 'before_password_submit.png', show=False)
+    sleep(0.5)
     submit_button.click()
     browser_screenshot(browser, 'after_password_submit.png', show=False)
     browser.switch_to.default_content() # otherwise you get 'can't access dead object' - we need to switch back from the iframe
+    status('waiting for tnuot')
     tnuot = WebDriverWait(browser, 20).\
             until(EC.presence_of_element_located((By.PARTIAL_LINK_TEXT, 'תנועות בחשבון')))
     browser_screenshot(browser, 'after_password_and_some_seconds.png', show=False)
@@ -237,15 +243,18 @@ class BalanceDiscourse:
                 balance = float(match.groups()[0])
         return post_id, balance
 
-    def post(self, date, balance, post_id, latest):
+    def post(self, date, balance, post_id, latest, really):
         latest = tabulate(latest.values, latest.columns, 'github')
         b64 = get_balance_plot()
+        stats = statistics()
         image = f'''<img src="data:image/png;base64,{b64}" alt="balance(date)" />'''
         content = f'''balance from {date}: {balance}
 
 {latest}
 
 {image}
+
+{stats.to_string(dtype=False)}
 
 ------
 
@@ -257,6 +266,12 @@ Repository producing this:
 
 https://github.com/telavivmakers/arewerichyet.git
 '''
+        if not really:
+            with open('test_post.md', 'w+') as fd:
+                fd.write(content)
+            size = Path('test_post.md').stat().st_size
+            print(f'not posting, wrote test_post.md with {size} bytes')
+            return
         if post_id is None:
             self.client.create_post(content=content, title=dc_title, category_id=self.category_id, topic_id=self.topic_id)
         else:
@@ -271,13 +286,8 @@ def df_to_discourse(df, latest, really=False, force=False):
     if last_balance == balance and not force:
         status('no change, not posting')
     else:
-        if really:
-            date = datetime.now().date() # This is the last date from the bank, but we are using the date we got this from the bank; df.iloc[-1].date.date()
-            status('creating discourse new post' if last_balance_post_id is None
-                   else 'updating discourse post {last_balance_post_id}'.format(last_balance_post_id=last_balance_post_id))
-            client.post(date=date, balance=balance, post_id=last_balance_post_id, latest=latest)
-        else:
-            status('dryrun, not updating')
+        date = datetime.now().date() # This is the last date from the bank, but we are using the date we got this from the bank; df.iloc[-1].date.date()
+        client.post(date=date, balance=balance, post_id=last_balance_post_id, latest=latest, really=really)
     status('done')
 
 
