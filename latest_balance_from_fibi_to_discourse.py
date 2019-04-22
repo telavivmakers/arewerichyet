@@ -17,6 +17,7 @@ import dotenv
 from tabulate import tabulate
 import pandas as pd
 import matplotlib.pyplot as plt
+import seaborn as sns
 from pandas.plotting import register_matplotlib_converters
 register_matplotlib_converters()
 
@@ -245,14 +246,16 @@ class BalanceDiscourse:
 
     def post(self, date, balance, post_id, latest, really):
         latest = tabulate(latest.values, latest.columns, 'github')
-        b64 = get_balance_plot()
+        b64_plots = get_balance_plots()
+        images = '\n'.join([
+            f'''<img src="data:image/png;base64,{b64}" alt="{name} (date)" />'''
+            for name, b64 in b64_plots.items()])
         stats = statistics()
-        image = f'''<img src="data:image/png;base64,{b64}" alt="balance(date)" />'''
         content = f'''balance from {date}: {balance}
 
 {latest}
 
-{image}
+{images}
 
 {stats.to_string(dtype=False)}
 
@@ -291,17 +294,27 @@ def df_to_discourse(df, latest, really=False, force=False):
     status('done')
 
 
-def get_balance_plot():
+def fig_to_file_and_b64(fig, filename):
+    fig.savefig(filename)
+    with open(filename, 'rb') as fd:
+        b = fd.read()
+    return base64.b64encode(b).decode()
+
+
+def get_balance_plots():
     df = pd.read_csv('all.csv')[['date', 'balance']].dropna()
     df['date'] = pd.to_datetime(df['date'])
     df['balance'] = pd.to_numeric(df['balance'])
-    plt.plot(df['date'], df['balance'], '.')
-    fig = plt.gcf()
+    fig, ax = plt.subplots()
+    sns.scatterplot(x=df['date'].dt.day, y=df['balance'], hue=df['date'].dt.month, ax=ax)
+    plots = {
+        'per day': fig_to_file_and_b64(fig, 'all_balance_per_day.png')
+    }
+    fig, ax = plt.subplots()
+    ax.plot(df['date'], df['balance'], '.')
     fig.autofmt_xdate(rotation=45)
-    plt.savefig('all_balance.png')
-    with open('all_balance.png', 'rb') as fd:
-        b = fd.read()
-    return base64.b64encode(b).decode()
+    plots['all'] =  fig_to_file_and_b64(fig, 'all_balance.png')
+    return plots
 
 
 def get_latest():
