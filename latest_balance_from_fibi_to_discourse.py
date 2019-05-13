@@ -42,8 +42,11 @@ assert 'PASSWORD' in environ
 assert 'USERNAME' in environ
 
 
-HEADLESS = False # False for debugging
+# seems that HEADLESS does not work right now, somehow fibi recognizes and blocks our login attempt. default to with head
+HEADLESS = environ.get('TAMI_HEADLESS', '0')[:1].lower() in {'1', 't'} # False for debugging
 
+if not HEADLESS:
+    print("will create a window (needs a working X11 server). DISPLAY = {environ.get('DISPLAY', None)}")
 
 if Path('./geckodriver').exists():
     path = environ['PATH']
@@ -80,15 +83,14 @@ def warn_if_multiple(items):
     return items[0]
 
 
-def export_fibi_actions_from_last_month():
+def export_fibi_actions_from_last_month(force=False):
     # if we find a current file, just use it
     here = Path('.').absolute()
     latest_csv = latest_file(list(here.glob('Fibi*.csv')))
-    if latest_csv is not None and time() - latest_csv.stat().st_mtime < 3600:
+    if not force and (latest_csv is not None and time() - latest_csv.stat().st_mtime < 3600):
         status(f'using cached file ({latest_csv})')
         df = fibi_to_dataframe(latest_csv)
     else:
-        breakpoint()
         df = export_fibi_actions_from_last_month_helper(downloaddir=str(here), headless=HEADLESS)
     today = datetime.now().date()
     today_str = today.strftime('%Y%m%d')
@@ -327,7 +329,7 @@ def get_latest():
 
 
 def main():
-    df = export_fibi_actions_from_last_month()
+    df = export_fibi_actions_from_last_month(force='force_fetch' in sys.argv)
     latest = get_latest()
     df_to_discourse(df, really='really' in sys.argv, force='force' in sys.argv, latest=latest)
 

@@ -50,13 +50,17 @@ def statistics(debug=False):
             f'{prefix} net': sdf.income.sum() - sdf.expense.sum(),
         }
 
-    ret = pd.Series(dict(**{
-            'Repeating payments (i.e. probably Members)': repeaters.reset_index()['income'].sum(),
-            'Repeating payments count (i.e. member number estimate)': repeaters.shape[0],
-        },
-        **summary(df_last_month, f'{last_month}'),
-        **summary(df_prev_30_days, f'[{prev_30_days.date()}..{start_of_last_month.date()})')
-    ))
+    if repeaters.empty:
+        ret = {}
+    else:
+        ret = dict(**{
+                'Repeating payments (i.e. probably Members)': repeaters.reset_index()['income'].sum(),
+                'Repeating payments count (i.e. member number estimate)': repeaters.shape[0],
+            },
+            **summary(df_last_month, f'{last_month}'),
+            **summary(df_prev_30_days, f'[{prev_30_days.date()}..{start_of_last_month.date()})')
+        )
+    ret = pd.Series(ret)
     if debug:
         return ret, df, last_month, prev_30_days
     return ret
