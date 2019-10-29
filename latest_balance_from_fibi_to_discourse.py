@@ -1,6 +1,7 @@
 #!/bin/env python3
 # coding: utf-8
 import re
+from argparse import ArgumentParser
 from pdb import set_trace as b
 from os import getcwd, environ
 from time import sleep # TODO - remove in favor of better 'wrappers'
@@ -83,6 +84,18 @@ def warn_if_multiple(items):
     return items[0]
 
 
+def assert_have_geckodriver():
+    try:
+        subprocess.check_output('which geckodriver'.split())
+        return
+    except:
+        pass
+    print('\nerror: missing geckodriver')
+    print('please install by:\nxdg-open https://github.com/mozilla/geckodriver/releases/latest')
+    print('unpack to execution directory or to PATH')
+    raise SystemExit
+
+
 def export_fibi_actions_from_last_month(force=False):
     # if we find a current file, just use it
     here = Path('.').absolute()
@@ -91,6 +104,7 @@ def export_fibi_actions_from_last_month(force=False):
         status(f'using cached file ({latest_csv})')
         df = fibi_to_dataframe(latest_csv)
     else:
+        assert_have_geckodriver()
         df = export_fibi_actions_from_last_month_helper(downloaddir=str(here), headless=HEADLESS)
     today = datetime.now().date()
     today_str = today.strftime('%Y%m%d')
@@ -329,9 +343,14 @@ def get_latest():
 
 
 def main():
-    df = export_fibi_actions_from_last_month(force='force_fetch' in sys.argv)
+    parser = ArgumentParser()
+    parser.add_argument('--really', action='store_true', default=False)
+    parser.add_argument('--force', action='store_true', default=False)
+    parser.add_argument('--force-fetch', action='store_true', default=False)
+    args = parser.parse_args()
+    df = export_fibi_actions_from_last_month(force=args.force_fetch)
     latest = get_latest()
-    df_to_discourse(df, really='really' in sys.argv, force='force' in sys.argv, latest=latest)
+    df_to_discourse(df, really=args.really, force=args.force, latest=latest)
 
 
 if __name__ == '__main__':
