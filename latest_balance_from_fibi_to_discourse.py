@@ -96,7 +96,7 @@ def assert_have_geckodriver():
     raise SystemExit
 
 
-def export_fibi_actions_from_last_month(force=False):
+def export_fibi_actions_from_last_month(force=False, verbose=False):
     # if we find a current file, just use it
     here = Path('.').absolute()
     latest_csv = latest_file(list(here.glob('Fibi*.csv')))
@@ -105,14 +105,14 @@ def export_fibi_actions_from_last_month(force=False):
         df = fibi_to_dataframe(latest_csv)
     else:
         assert_have_geckodriver()
-        df = export_fibi_actions_from_last_month_helper(downloaddir=str(here), headless=HEADLESS)
+        df = export_fibi_actions_from_last_month_helper(downloaddir=str(here), headless=HEADLESS, verbose=verbose)
     today = datetime.now().date()
     today_str = today.strftime('%Y%m%d')
     df.to_csv(f'fibi_last_month_export_{today_str}.csv', index=False)
     return df
 
 
-def export_fibi_actions_from_last_month_helper(downloaddir, headless=True):
+def export_fibi_actions_from_last_month_helper(downloaddir, headless=True, verbose=False):
     opts = Options()
 
     opts.headless = headless
@@ -131,10 +131,7 @@ def export_fibi_actions_from_last_month_helper(downloaddir, headless=True):
     #capabilities["marionett"] = False
 
     status('creating selenium driver')
-    if False:
-        service_args = ['-vv']
-    else:
-        service_args = []
+    service_args = ['-vv'] if verbose else []
     browser = Firefox(
         options=opts,
         firefox_profile=profile,
@@ -347,8 +344,9 @@ def main():
     parser.add_argument('--really', action='store_true', default=False)
     parser.add_argument('--force', action='store_true', default=False)
     parser.add_argument('--force-fetch', action='store_true', default=False)
+    parser.add_argument('-v', '--verbose', action='store_true', default=False)
     args = parser.parse_args()
-    df = export_fibi_actions_from_last_month(force=args.force_fetch)
+    df = export_fibi_actions_from_last_month(force=args.force_fetch, verbose=args.verbose)
     latest = get_latest()
     df_to_discourse(df, really=args.really, force=args.force, latest=latest)
 
