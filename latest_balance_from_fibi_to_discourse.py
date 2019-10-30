@@ -46,9 +46,6 @@ assert 'USERNAME' in environ
 # seems that HEADLESS does not work right now, somehow fibi recognizes and blocks our login attempt. default to with head
 HEADLESS = environ.get('TAMI_HEADLESS', '0')[:1].lower() in {'1', 't'} # False for debugging
 
-if not HEADLESS:
-    print("will create a window (needs a working X11 server). DISPLAY = {environ.get('DISPLAY', None)}")
-
 if Path('./geckodriver').exists():
     path = environ['PATH']
     cwd = getcwd()
@@ -117,6 +114,9 @@ def export_fibi_actions_from_last_month_helper(downloaddir, headless=True, verbo
 
     opts.headless = headless
     assert opts.headless == headless
+
+    if not headless:
+        print("will create a window (needs a working X11 server). DISPLAY = {environ.get('DISPLAY', None)}")
 
     profile = FirefoxProfile()
     profile.set_preference("browser.download.panel.shown", False)
