@@ -81,12 +81,17 @@ def warn_if_multiple(items):
     return items[0]
 
 
-def assert_have_geckodriver():
+def missing(exe):
     try:
-        subprocess.check_output('which geckodriver'.split())
-        return
+        subprocess.check_output(['which', exe])
+        return False
     except:
-        pass
+        return True
+
+
+def assert_have_geckodriver():
+    if not missing('geckodriver'):
+        return
     print('\nerror: missing geckodriver')
     print('please install by:\nxdg-open https://github.com/mozilla/geckodriver/releases/latest')
     print('unpack to execution directory or to PATH')
@@ -332,6 +337,12 @@ def get_balance_plots():
 
 def get_latest():
     # implemented with an xsv script right now, just use that
+    if missing('xsv'):
+        if missing('cargo'):
+            print("install rust :\ncurl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh")
+        if missing('xsv'):
+            print('please install xsv: \ncargo install xsv')
+        raise SystemExit
     s = StringIO(subprocess.check_output('./last_files_expenses.sh').decode())
     df = pd.read_csv(s)
     df['description'] = df.apply(lambda row: pd.isna(row.recurring) and row.one_time or row.recurring, axis=1)
