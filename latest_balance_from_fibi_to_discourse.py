@@ -243,8 +243,9 @@ class BalanceDiscourse:
             api_key=environ['DISCOURSE_API_KEY'],
             api_username=dc_username)
         self.client = client
-        category_name = '$$ Financial Status $$'
-        finance_category = warn_if_multiple([x for x in client.categories() if x['name'] == category_name])
+        category_name = 'Staying Alive'
+        client_categories = client.categories()
+        finance_category = warn_if_multiple([x for x in client_categories if x['name'] == category_name])
         self.category_id = category_id = finance_category['id']
         user_topics = client.topics_by(dc_username)
         topic_title_to_id = {x['title'].lower(): x['id'] for x in user_topics}
