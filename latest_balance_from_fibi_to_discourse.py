@@ -25,6 +25,7 @@ register_matplotlib_converters()
 import pydiscourse
 
 from selenium import webdriver
+from selenium.common.exceptions import WebDriverException
 from selenium.webdriver import Firefox, FirefoxProfile
 from selenium.webdriver.firefox.firefox_binary import FirefoxBinary
 from selenium.webdriver.firefox.options import Options
@@ -38,13 +39,12 @@ from find_repeat_donations import statistics
 
 dotenv.load_dotenv()
 
+FIBI_PASSWORD_ENV = 'FIBI_PASSWORD'
+FIBI_USERNAME_ENV = 'FIBI_USERNAME'
 
-assert 'PASSWORD' in environ
-assert 'USERNAME' in environ
+assert FIBI_PASSWORD_ENV in environ
+assert FIBI_USERNAME_ENV in environ
 
-
-# seems that HEADLESS does not work right now, somehow fibi recognizes and blocks our login attempt. default to with head
-HEADLESS = environ.get('TAMI_HEADLESS', '0')[:1].lower() in {'1', 't'} # False for debugging
 
 if Path('./geckodriver').exists():
     path = environ['PATH']
@@ -62,7 +62,11 @@ def showpng(filename):
 
 
 def element_screenshot(e, filename, show=True):
-    e.screenshot(filename)
+    try:
+        e.screenshot(filename)
+    except WebDriverException:
+        print("failed to take screenshot, ignoring: {}".format(filename))
+        return
     if show:
         showpng(filename)
 
@@ -107,20 +111,20 @@ def export_fibi_actions_from_last_month(args):
         df = fibi_to_dataframe(latest_xls)
     else:
         assert_have_geckodriver()
-        df = export_fibi_actions_from_last_month_helper(downloaddir=str(here), headless=HEADLESS, verbose=args.verbose)
+        df = export_fibi_actions_from_last_month_helper(downloaddir=str(here), args=args)
     today = datetime.now().date()
     today_str = today.strftime('%Y%m%d')
     df.to_csv(f'fibi_last_month_export_{today_str}.csv', index=False)
     return df
 
 
-def export_fibi_actions_from_last_month_helper(downloaddir, headless=True, verbose=False):
+def export_fibi_actions_from_last_month_helper(downloaddir, args):
     opts = Options()
 
-    opts.headless = headless
-    assert opts.headless == headless
+    opts.headless = args.headless
+    assert opts.headless == args.headless
 
-    if not headless:
+    if not args.headless:
         print("will create a window (needs a working X11 server). DISPLAY = {environ.get('DISPLAY', None)}")
 
     profile = FirefoxProfile()
@@ -136,7 +140,7 @@ def export_fibi_actions_from_last_month_helper(downloaddir, headless=True, verbo
     #capabilities["marionett"] = False
 
     status('creating selenium driver')
-    service_args = ['-vv'] if verbose else []
+    service_args = ['-vv'] if args.verbose else []
     browser = Firefox(
         options=opts,
         firefox_profile=profile,
@@ -161,8 +165,17 @@ def export_fibi_actions_from_last_month_helper(downloaddir, headless=True, verbo
     submit_button = WebDriverWait(browser, 20).\
             until(EC.presence_of_element_located((By.ID, 'continueBtn')))
 
-    username.send_keys(environ['USERNAME'])
-    password.send_keys(environ['PASSWORD'])
+    sent_username = environ[FIBI_USERNAME_ENV]
+    sent_password = environ[FIBI_PASSWORD_ENV]
+
+    if args.selenium_no_login:
+        print('done, debug away')
+        print("would have used:\n{}, {}".format(sent_username, sent_password))
+        b()
+        #raise SystemExit
+
+    username.send_keys(sent_username)
+    password.send_keys(sent_password)
 
     element_screenshot(username, 'username_after_send_keys.png', show=False)
     element_screenshot(password, 'password_after_send_keys.png', show=False)
@@ -244,8 +257,13 @@ class BalanceDiscourse:
             api_username=dc_username)
         self.client = client
         category_name = 'Staying Alive'
-        client_categories = client.categories()
-        finance_category = warn_if_multiple([x for x in client_categories if x['name'] == category_name])
+        categories = client.categories()
+        find_cat = lambda cat: warn_if_multiple([x for x in categories if x['name'] == cat])
+        finance_category = find_cat(category_name)
+        if finance_category is None:
+            print('warning: did someone rename the category again? update category_name')
+            print('look for topic with title: {}'.format(dc_title))
+            raise SystemExit
         self.category_id = category_id = finance_category['id']
         user_topics = client.topics_by(dc_username)
         topic_title_to_id = {x['title'].lower(): x['id'] for x in user_topics}
@@ -368,6 +386,9 @@ def main():
     parser.add_argument('--really', action='store_true', default=False)
     parser.add_argument('--force', action='store_true', default=False)
     parser.add_argument('--force-fetch', action='store_true', default=False)
+    parser.add_argument('--selenium-no-login', action='store_true', default=False)
+    default_headless = environ.get('TAMI_HEADLESS', '0')[:1].lower() in {'1', 't'} # False for debugging
+    parser.add_argument('--headless', action='store_true', default=default_headless)
     parser.add_argument('-v', '--verbose', action='store_true', default=False)
     args = parser.parse_args()
     df = export_fibi_actions_from_last_month(args)
