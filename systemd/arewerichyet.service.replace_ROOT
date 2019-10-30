@@ -1,0 +1,10 @@
+[Unit]
+Description=VNC Server for FIBI (TAMI)
+
+[Service]
+WorkingDirectory=ROOT
+ExecStart=ROOT/venv/bin/python ROOT/latest_balance_from_fibi_to_discourse.py --no-cache --really
+Type=simple
+
+[Install]
+WantedBy=default.target

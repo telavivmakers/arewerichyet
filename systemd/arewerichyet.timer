@@ -1,0 +1,10 @@
+[Unit]
+Description=Aziza tunnel
+After=network.target
+
+[Timer]
+OnCalendar=14:00:00
+RandomizedDelaySec=3600
+
+[Install]
+WantedBy=multi-user.target
