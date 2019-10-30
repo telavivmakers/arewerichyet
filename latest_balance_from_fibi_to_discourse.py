@@ -101,10 +101,10 @@ def assert_have_geckodriver():
 def export_fibi_actions_from_last_month(force=False, verbose=False):
     # if we find a current file, just use it
     here = Path('.').absolute()
-    latest_csv = latest_file(list(here.glob('Fibi*.csv')))
-    if not force and (latest_csv is not None and time() - latest_csv.stat().st_mtime < 3600):
-        status(f'using cached file ({latest_csv})')
-        df = fibi_to_dataframe(latest_csv)
+    latest_xls = latest_file(list(here.glob('Fibi*.xls')))
+    if not force and (latest_xls is not None and time() - latest_xls.stat().st_mtime < 3600):
+        status(f'using cached file ({latest_xls})')
+        df = fibi_to_dataframe(latest_xls)
     else:
         assert_have_geckodriver()
         df = export_fibi_actions_from_last_month_helper(downloaddir=str(here), headless=HEADLESS, verbose=verbose)
@@ -204,7 +204,7 @@ def export_fibi_actions_from_last_month_helper(downloaddir, headless=True, verbo
     status('downloading csv from previous month until now')
     export_to_excel.click()
     sleep(2) # not always seeing csv file created. should be another way to query webdriver for saved file, or inotify on dir
-    fibis = list(Path('.').glob('Fibi*.csv'))
+    fibis = list(Path('.').glob('Fibi*.xls'))
     latest = latest_file(fibis)
     if latest is None:
         status('no file returned; try later - seen error during middle of the night')
@@ -219,11 +219,11 @@ def latest_file(paths):
 
 
 def fibi_to_dataframe(filename):
-    latest_df = pd.read_csv(filename, encoding='iso8859-8')
+    latest_df = pd.read_excel(filename, header=1, usecols=[1, 2, 3, 4, 5, 6, 7, 8])
     date_col = warn_if_multiple([x for x in latest_df.columns if 'תאריך' in x and 'תאריך ערך' not in x])
     latest_df = latest_df.rename(columns={date_col: 'date', 'סוג פעולה': 'op_type', 'תיאור': 'description', 'אסמכתא': 'id', 'זכות': 'income', 'חובה': 'expense', 'תאריך ערך': 'value_date', 'יתרה': 'balance'})
-    latest_df.date = pd.to_datetime(latest_df.date, format='%d/%m/%Y')
-    latest_df.value_date = pd.to_datetime(latest_df.value_date, format='%d/%m/%Y')
+    latest_df.date = pd.to_datetime(latest_df.date.replace(' ', pd.np.nan))
+    latest_df.value_date = pd.to_datetime(latest_df.value_date.replace(' ', pd.np.nan))
     for col in ['balance', 'income', 'expense']:
         latest_df[col] = pd.to_numeric(latest_df[col].str.replace(',', ''), errors='coerce')
     return latest_df
