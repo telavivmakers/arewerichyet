@@ -222,10 +222,12 @@ def fibi_to_dataframe(filename):
     latest_df = pd.read_excel(filename, header=1, usecols=[1, 2, 3, 4, 5, 6, 7, 8])
     date_col = warn_if_multiple([x for x in latest_df.columns if 'תאריך' in x and 'תאריך ערך' not in x])
     latest_df = latest_df.rename(columns={date_col: 'date', 'סוג פעולה': 'op_type', 'תיאור': 'description', 'אסמכתא': 'id', 'זכות': 'income', 'חובה': 'expense', 'תאריך ערך': 'value_date', 'יתרה': 'balance'})
-    latest_df.date = pd.to_datetime(latest_df.date.replace(' ', pd.np.nan))
-    latest_df.value_date = pd.to_datetime(latest_df.value_date.replace(' ', pd.np.nan))
+    def clean(s):
+        return s.replace(' ', '')
+    latest_df.date = pd.to_datetime(clean(latest_df.date))
+    latest_df.value_date = pd.to_datetime(clean(latest_df.value_date))
     for col in ['balance', 'income', 'expense']:
-        latest_df[col] = pd.to_numeric(latest_df[col].str.replace(',', ''), errors='coerce')
+        latest_df[col] = pd.to_numeric(clean(latest_df[col]), errors='coerce')
     return latest_df
 
 
@@ -336,20 +338,24 @@ def get_balance_plots():
 
 
 def get_latest():
+    """
+    # WIP - into python
     files = subprocess.check_output(['find', '.', '-maxdepth', '1', '-ctime', '-14', '-iname', 'FibiSave*.xls']).decode().split('\n')
     dfs = [fibi_to_dataframe(f) for f in files if f.strip() != '']
-    df = pd.concat(dfs, sort=True)
+    df = pd.concat(dfs, sort=True).drop_duplicates()
     df.to_csv('all.csv')
-    df[['expense', 'value_date'
+    df[['expense', 'value_date']]
     b()
     """
-xsv cat rows $(find . -maxdepth 1 -ctime -14 -iname 'fibi_last_month*.csv') | xsv sort | uniq > all.csv
-xsv cat rows $(find . -maxdepth 1 -ctime -14 -iname 'fibi_last_month*.csv') | xsv sort | uniq \
-| xsv select expense,value_date $f | grep -v '^,' > last_expenses.csv
-xsv join --left expense last_expenses.csv  cost recurring_by_cost.csv  | xsv select expense,value_date,recurring > last_expenses_with_recurring.csv
-xsv join --left expense,value_date last_expenses_with_recurring.csv expense,value_date one_time.csv \
-  |  xsv select expense,value_date,recurring,one_time
-    """
+    # implemented with an xsv script right now, just use that
+    if missing('xsv'):
+        if missing('cargo'):
+            print("install rust :\ncurl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh")
+        if missing('xsv'):
+            print('please install xsv: \ncargo install xsv')
+        raise SystemExit
+    s = StringIO(subprocess.check_output('./last_files_expenses.sh').decode())
+    df = pd.read_csv(s)
     df['description'] = df.apply(lambda row: pd.isna(row.recurring) and row.one_time or row.recurring, axis=1)
     df = df.drop(columns=['recurring', 'one_time'])
     return df
@@ -364,7 +370,7 @@ def main():
     parser.add_argument('-v', '--verbose', action='store_true', default=False)
     args = parser.parse_args()
     df = export_fibi_actions_from_last_month(args)
-    latest = None  # TODO: get_latest()
+    latest = get_latest()
     df_to_discourse(df, really=args.really, force=args.force, latest=latest)
 
 
