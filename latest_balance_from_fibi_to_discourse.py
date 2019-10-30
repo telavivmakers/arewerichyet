@@ -98,16 +98,16 @@ def assert_have_geckodriver():
     raise SystemExit
 
 
-def export_fibi_actions_from_last_month(force=False, verbose=False):
+def export_fibi_actions_from_last_month(args):
     # if we find a current file, just use it
     here = Path('.').absolute()
     latest_xls = latest_file(list(here.glob('Fibi*.xls')))
-    if not force and (latest_xls is not None and time() - latest_xls.stat().st_mtime < 3600):
+    if args.cache or (not args.force and (latest_xls is not None and time() - latest_xls.stat().st_mtime < 3600)):
         status(f'using cached file ({latest_xls})')
         df = fibi_to_dataframe(latest_xls)
     else:
         assert_have_geckodriver()
-        df = export_fibi_actions_from_last_month_helper(downloaddir=str(here), headless=HEADLESS, verbose=verbose)
+        df = export_fibi_actions_from_last_month_helper(downloaddir=str(here), headless=HEADLESS, verbose=args.verbose)
     today = datetime.now().date()
     today_str = today.strftime('%Y%m%d')
     df.to_csv(f'fibi_last_month_export_{today_str}.csv', index=False)
@@ -263,7 +263,7 @@ class BalanceDiscourse:
         return post_id, balance
 
     def post(self, date, balance, post_id, latest, really):
-        latest = tabulate(latest.values, latest.columns, 'github')
+        latest = tabulate(latest.values, latest.columns, 'github') if latest is not None else 'latest - to redo with excel (alon)'
         b64_plots = get_balance_plots()
         images = '\n'.join([
             f'''<img src="data:image/png;base64,{b64}" alt="{name} (date)" />'''
@@ -336,15 +336,20 @@ def get_balance_plots():
 
 
 def get_latest():
-    # implemented with an xsv script right now, just use that
-    if missing('xsv'):
-        if missing('cargo'):
-            print("install rust :\ncurl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh")
-        if missing('xsv'):
-            print('please install xsv: \ncargo install xsv')
-        raise SystemExit
-    s = StringIO(subprocess.check_output('./last_files_expenses.sh').decode())
-    df = pd.read_csv(s)
+    files = subprocess.check_output(['find', '.', '-maxdepth', '1', '-ctime', '-14', '-iname', 'FibiSave*.xls']).decode().split('\n')
+    dfs = [fibi_to_dataframe(f) for f in files if f.strip() != '']
+    df = pd.concat(dfs, sort=True)
+    df.to_csv('all.csv')
+    df[['expense', 'value_date'
+    b()
+    """
+xsv cat rows $(find . -maxdepth 1 -ctime -14 -iname 'fibi_last_month*.csv') | xsv sort | uniq > all.csv
+xsv cat rows $(find . -maxdepth 1 -ctime -14 -iname 'fibi_last_month*.csv') | xsv sort | uniq \
+| xsv select expense,value_date $f | grep -v '^,' > last_expenses.csv
+xsv join --left expense last_expenses.csv  cost recurring_by_cost.csv  | xsv select expense,value_date,recurring > last_expenses_with_recurring.csv
+xsv join --left expense,value_date last_expenses_with_recurring.csv expense,value_date one_time.csv \
+  |  xsv select expense,value_date,recurring,one_time
+    """
     df['description'] = df.apply(lambda row: pd.isna(row.recurring) and row.one_time or row.recurring, axis=1)
     df = df.drop(columns=['recurring', 'one_time'])
     return df
@@ -352,13 +357,14 @@ def get_latest():
 
 def main():
     parser = ArgumentParser()
+    parser.add_argument('--no-cache', action='store_false', dest='cache', default=True)
     parser.add_argument('--really', action='store_true', default=False)
     parser.add_argument('--force', action='store_true', default=False)
     parser.add_argument('--force-fetch', action='store_true', default=False)
     parser.add_argument('-v', '--verbose', action='store_true', default=False)
     args = parser.parse_args()
-    df = export_fibi_actions_from_last_month(force=args.force_fetch, verbose=args.verbose)
-    latest = get_latest()
+    df = export_fibi_actions_from_last_month(args)
+    latest = None  # TODO: get_latest()
     df_to_discourse(df, really=args.really, force=args.force, latest=latest)
 
 
